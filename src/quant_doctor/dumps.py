@@ -7,7 +7,7 @@ pairs a reference Dump against a target Dump.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import torch
@@ -19,6 +19,10 @@ class Dump:
     manifest: dict
     layers: list[torch.Tensor]          # each [seq, hidden]
     logits: torch.Tensor | None         # [seq, vocab] or None
+    # MoE: layer index -> list of per-expert outputs (each [seq, hidden]); and
+    # layer index -> router logits [seq, n_experts]. Empty for dense models.
+    experts: dict[int, list[torch.Tensor]] = field(default_factory=dict)
+    routers: dict[int, torch.Tensor] = field(default_factory=dict)
 
     @property
     def n_layers(self) -> int:
@@ -28,9 +32,13 @@ class Dump:
     def model(self) -> str:
         return self.manifest.get("model", "<unknown>")
 
+    @property
+    def moe_layers(self) -> list[int]:
+        return sorted(self.experts.keys())
+
 
 def load_dump(path: str | Path) -> Dump:
-    """Read a dump directory into memory."""
+    """Read a dump directory into memory (dense + optional MoE per-expert files)."""
     path = Path(path)
     manifest_path = path / "manifest.json"
     if not manifest_path.exists():
@@ -50,7 +58,23 @@ def load_dump(path: str | Path) -> Dump:
     if logits_path.exists():
         logits = load_file(logits_path)["logits"]
 
-    return Dump(manifest=manifest, layers=layers, logits=logits)
+    # MoE: load per-expert outputs + router logits for declared expert layers.
+    experts: dict[int, list[torch.Tensor]] = {}
+    routers: dict[int, torch.Tensor] = {}
+    n_experts = manifest.get("n_experts", 0)
+    for li in manifest.get("moe_layers", []):
+        expert_tensors = []
+        for e in range(n_experts):
+            ef = path / f"layer_{li:02d}.expert_{e:03d}.safetensors"
+            if ef.exists():
+                expert_tensors.append(load_file(ef)["hidden"])
+        if expert_tensors:
+            experts[li] = expert_tensors
+        rf = path / f"layer_{li:02d}.router.safetensors"
+        if rf.exists():
+            routers[li] = load_file(rf)["logits"]
+
+    return Dump(manifest=manifest, layers=layers, logits=logits, experts=experts, routers=routers)
 
 
 def check_pair(ref: Dump, target: Dump) -> None:

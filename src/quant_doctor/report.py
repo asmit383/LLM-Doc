@@ -79,6 +79,22 @@ def render_table(diag: Diagnosis, console: Console | None = None) -> None:
 
     console.print(table)
 
+    # --- MoE per-expert view for layers with a flagged expert (Phase 5) ---
+    moe_layers = [lm for lm in diag.layers if lm.culprit_experts]
+    if moe_layers:
+        etable = Table(title="MoE Experts (flagged layers)", header_style="bold")
+        etable.add_column("Layer", justify="right")
+        etable.add_column("Expert", justify="right")
+        etable.add_column("Heatmap", justify="left")
+        etable.add_column("Cosine", justify="right")
+        etable.add_column("", justify="left")
+        for lm in moe_layers:
+            for e, c in enumerate(lm.expert_cosines):
+                dead = e in lm.culprit_experts
+                flag = Text("← DEAD", style="bold red") if dead else Text("")
+                etable.add_row(lm.name, str(e), _bar(c), f"{c:.4f}", flag)
+        console.print(etable)
+
     # --- Failure mode + signature + prescription (Phase 2) ---
     if diag.failure_mode:
         body = Text()

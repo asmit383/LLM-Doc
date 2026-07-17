@@ -29,6 +29,10 @@ class LayerMetrics:
     # direction (computed for culprit layers only; None otherwise). High = the
     # error is structured/low-rank; low = diffuse noise.
     subspace_top1: float | None = None
+    # --- MoE (present only for expert layers) ---
+    expert_cosines: list[float] | None = None   # per-expert cosine, len = n_experts
+    culprit_experts: list[int] = field(default_factory=list)
+    router_kl: float | None = None               # KL between ref/quant routing distributions
 
 
 @dataclass

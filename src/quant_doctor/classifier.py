@@ -77,6 +77,20 @@ def classify(diag: Diagnosis) -> Classification:
     prefix = clean_prefix_len(cosines, CULPRIT_COSINE)
     worst = min(diag.layers, key=lambda lm: lm.cosine)
 
+    # --- MoE expert collapse: a single dead expert, often hidden behind a
+    # healthy-looking block average. Checked first — aggregate cosine misses it.
+    expert_layers = [lm for lm in diag.layers if lm.culprit_experts]
+    if expert_layers:
+        sig = []
+        for lm in expert_layers:
+            for e in lm.culprit_experts:
+                c = lm.expert_cosines[e]
+                sig.append(f"{lm.name} expert {e}: cosine {c:.3f} — DEAD "
+                           f"(block average {lm.cosine:.3f} looks fine)")
+            if lm.router_kl is not None:
+                sig.append(f"{lm.name} router divergence {lm.router_kl:.3f} nats")
+        return _mk(FailureMode.COMPUTATION_COLLAPSE, sig)
+
     # --- Healthy -----------------------------------------------------------
     if diag.verdict is Verdict.PASS:
         return _mk(FailureMode.HEALTHY, [f"min cosine {mn:.3f} — within healthy range"])

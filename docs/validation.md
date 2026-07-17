@@ -85,10 +85,32 @@ exactly the signals a practitioner needs and no existing tool provides:
 - **Computation Collapse (Case B):** the worst layer (20) is a red herring; the
   fix belongs at the onset (12), and training-free repair won't fully recover it.
 
+## Method 3 — MoE per-expert (the V4 scenario)
+
+MoE damage hides behind the block average: a single dead expert barely moves the
+layer's mean output, so aggregate metrics miss it. quant-doctor dumps and compares
+each expert individually.
+
+### Case D — expert blowup (mimics V4 layer-2 MXFP4-as-INT4)
+
+Synthetic MoE dump: layer 2, expert 3 scrambled; every block output left healthy.
+
+```bash
+quant-doctor diagnose-dumps --ref-dir moe_expert_blowup/ref --target-dir moe_expert_blowup/target
+```
+
+- **Block average: mean cosine 0.9996** — the layer looks *pristine*.
+- **Per-expert: layer_02 expert 3 = −0.003 → DEAD.** Localized to the exact expert.
+- **Verdict:** BROKEN. **Mode:** Computation Collapse (expert-level).
+- **Recipe:** keep `model.layers.2` (dead expert [3]) + `lm_head` at higher bits.
+
+This is the differentiator: **no aggregate metric would have caught it.** It's
+exactly the V4 failure the tool was conceived for.
+
 ## Scorecard
 
-**6/6**: 4/4 synthetic ground-truth (pytest) + 2/2 real GPU case studies (correct
-verdict *and* failure mode in every case).
+**8/8**: 6/6 synthetic ground-truth (pytest) + 2/2 real GPU case studies — correct
+verdict *and* failure mode in every case, including MoE expert-level localization.
 
 ## Still to validate (Phase 5)
 

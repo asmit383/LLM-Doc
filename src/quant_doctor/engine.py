@@ -24,6 +24,21 @@ def diagnose_pair(ref: Dump, target: Dump) -> Diagnosis:
         layers.append(LayerMetrics(index=i, name=f"layer_{i:02d}", cosine=cos, mse=mse))
 
     culprits = [lm.index for lm in layers if lm.cosine < CULPRIT_COSINE]
+
+    # --- MoE: per-expert diagnosis. A single dead expert can hide behind a
+    # healthy-looking layer average, so we flag at expert granularity. ---
+    for li in ref.moe_layers:
+        if li not in target.experts:
+            continue
+        lm = layers[li]
+        ref_experts, q_experts = ref.experts[li], target.experts[li]
+        lm.expert_cosines = [layer_cosine(a, b) for a, b in zip(ref_experts, q_experts)]
+        lm.culprit_experts = [e for e, c in enumerate(lm.expert_cosines) if c < CULPRIT_COSINE]
+        if li in ref.routers and li in target.routers:
+            lm.router_kl = output_kl(ref.routers[li], target.routers[li])
+        if lm.culprit_experts and li not in culprits:
+            culprits.append(li)  # dead expert => the layer is a culprit even if its mean looks fine
+
     for lm in layers:
         lm.is_culprit = lm.index in culprits
 
@@ -34,7 +49,12 @@ def diagnose_pair(ref: Dump, target: Dump) -> Diagnosis:
 
     cosines = [lm.cosine for lm in layers]
     mean_cos = sum(cosines) / len(cosines)
-    min_cos = min(cosines)
+    # A dead expert can leave the block-output cosine high; fold expert damage
+    # into min_cosine so the verdict reflects it.
+    expert_min = min(
+        (min(lm.expert_cosines) for lm in layers if lm.expert_cosines), default=1.0
+    )
+    min_cos = min(min(cosines), expert_min)
 
     kl = None
     if ref.logits is not None and target.logits is not None:

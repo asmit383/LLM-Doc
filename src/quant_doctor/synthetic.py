@@ -27,12 +27,21 @@ COLLAPSE_AT = 2
 
 CASES = ["healthy", "signal_degradation", "computation_collapse", "format_bug"]
 
+# MoE cases (per-expert dumps). BLOWN mimics the V4 layer-2 MXFP4-as-INT4 blowup.
+MOE_LAYERS = [2, 6, 10]
+N_EXPERTS = 8
+BLOWN_LAYER = 2
+BLOWN_EXPERT = 3
+MOE_CASES = ["moe_healthy", "moe_expert_blowup"]
+
 # Ground truth the test suite asserts against: (verdict, failure_mode).
 EXPECTED = {
     "healthy": ("PASS", "Healthy"),
     "signal_degradation": ("DEGRADED", "Signal Degradation"),
     "computation_collapse": ("BROKEN", "Computation Collapse"),
     "format_bug": ("BROKEN", "Format Bug"),
+    "moe_healthy": ("PASS", "Healthy"),
+    "moe_expert_blowup": ("BROKEN", "Computation Collapse"),
 }
 
 
@@ -109,6 +118,53 @@ def make_case(name: str, root: Path, seed: int = 0) -> Path:
     return root / name
 
 
+def _write_moe_dump(out, layers, logits, experts, routers, model) -> None:
+    """Write a dense dump plus per-expert + router files for MoE layers."""
+    _write_dump(out, layers, logits, model)
+    for li, expert_list in experts.items():
+        for e, t in enumerate(expert_list):
+            save_file({"hidden": t.contiguous()},
+                      str(out / f"layer_{li:02d}.expert_{e:03d}.safetensors"))
+    for li, r in routers.items():
+        save_file({"logits": r.contiguous()}, str(out / f"layer_{li:02d}.router.safetensors"))
+    # Patch the manifest with MoE fields.
+    manifest = json.loads((out / "manifest.json").read_text())
+    manifest.update({"is_moe": True, "moe_layers": sorted(experts.keys()), "n_experts": N_EXPERTS})
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
+
+
+def make_moe_case(name: str, root: Path, seed: int = 0) -> Path:
+    """Generate a MoE case with per-expert dumps. Returns root/<name>."""
+    gen = torch.Generator().manual_seed(seed)
+    ref_layers, ref_logits = _make_reference(gen)
+    ref_experts = {li: [torch.randn(SEQ, HIDDEN, generator=gen) * 2.0 for _ in range(N_EXPERTS)]
+                   for li in MOE_LAYERS}
+    ref_routers = {li: torch.randn(SEQ, N_EXPERTS, generator=gen) for li in MOE_LAYERS}
+
+    # Block outputs stay healthy in both cases — the point of the blowup case is
+    # that the damage is invisible at the block level and only shows per-expert.
+    tgt_layers = [_cosine_noise(x, 0.03, gen) for x in ref_layers]
+    tgt_routers = {li: _logit_noise(ref_routers[li], 0.1, gen) for li in MOE_LAYERS}
+    tgt_experts = {li: [_cosine_noise(e, 0.03, gen) for e in ref_experts[li]] for li in MOE_LAYERS}
+
+    if name == "moe_healthy":
+        tgt_logits = _logit_noise(ref_logits, 0.2, gen)
+    elif name == "moe_expert_blowup":
+        # One expert in one layer is scrambled (the MXFP4-as-INT4 signature).
+        tgt_experts[BLOWN_LAYER][BLOWN_EXPERT] = torch.randn(SEQ, HIDDEN, generator=gen) * 2.0
+        tgt_logits = _logit_noise(ref_logits, 1.0, gen)
+    else:
+        raise ValueError(f"unknown MoE case: {name}")
+
+    _write_moe_dump(root / name / "ref", ref_layers, ref_logits, ref_experts, ref_routers,
+                    model=f"synthetic-{name}")
+    _write_moe_dump(root / name / "target", tgt_layers, tgt_logits, tgt_experts, tgt_routers,
+                    model=f"synthetic-{name}")
+    return root / name
+
+
 def make_all(root: Path, seed: int = 0) -> None:
     for i, case in enumerate(CASES):
         make_case(case, root, seed=seed + i)
+    for i, case in enumerate(MOE_CASES):
+        make_moe_case(case, root, seed=seed + 100 + i)

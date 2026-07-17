@@ -18,11 +18,24 @@ eval input. Diagnosis compares two dumps — a **reference** (pre-quant) and a
 └── logits.safetensors       # key "logits" -> tensor [seq, vocab]   (optional)
 ```
 
-For MoE models (Phase 5), per-expert activations are added alongside the block:
+For MoE models (Phase 5), per-expert activations and the router logits are added
+alongside the block output:
 
 ```
-├── layer_02.expert_000.safetensors   # key "hidden" -> [n_routed_tokens, hidden]
+├── layer_02.safetensors              # key "hidden" -> [seq, hidden]   (block output)
+├── layer_02.expert_000.safetensors   # key "hidden" -> [seq, hidden]   (expert 0, dense eval)
 ├── layer_02.expert_001.safetensors
+├── ...
+├── layer_02.router.safetensors       # key "logits" -> [seq, n_experts]
+```
+
+Per-expert tensors are the **dense evaluation** of each expert over all `seq`
+tokens (every expert on every token), so `cosine(ref_expert_e, quant_expert_e)`
+is well-defined regardless of routing. This is what catches a single dead expert
+that a healthy-looking block average would hide. The manifest declares:
+
+```json
+{ "is_moe": true, "moe_layers": [2, 6, 10], "n_experts": 8 }
 ```
 
 ## manifest.json

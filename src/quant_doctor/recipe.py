@@ -97,13 +97,22 @@ def generate_recipe(
     )
 
     if mode == FailureMode.COMPUTATION_COLLAPSE.value:
-        onset = clean_prefix_len([lm.cosine for lm in diag.layers], CULPRIT_COSINE)
-        for idx in (onset - 1, onset, onset + 1):
-            if 0 <= idx < n:
-                overrides[f"model.layers.{idx}"] = LayerOverride(
-                    f"model.layers.{idx}", high_bits,
-                    "collapse onset / neighbor — keep at high precision",
+        expert_layers = [lm for lm in diag.layers if lm.culprit_experts]
+        if expert_layers:
+            # MoE expert blowup: target the offending MoE layer(s) directly.
+            for lm in expert_layers:
+                overrides[f"model.layers.{lm.index}"] = LayerOverride(
+                    f"model.layers.{lm.index}", high_bits,
+                    f"dead expert(s) {lm.culprit_experts} — keep this MoE layer high",
                 )
+        else:
+            onset = clean_prefix_len([lm.cosine for lm in diag.layers], CULPRIT_COSINE)
+            for idx in (onset - 1, onset, onset + 1):
+                if 0 <= idx < n:
+                    overrides[f"model.layers.{idx}"] = LayerOverride(
+                        f"model.layers.{idx}", high_bits,
+                        "collapse onset / neighbor — keep at high precision",
+                    )
         confidence = ("LOW — training-free repair unlikely to fully recover; the onset "
                       "layer destroys information. Consider a LoRA / fine-tune too.")
     else:

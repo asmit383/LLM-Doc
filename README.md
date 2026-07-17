@@ -166,7 +166,7 @@ docs/
 └── validation.md     # methodology + results
 ```
 
-Roadmap and status live in [`PHASES.md`](PHASES.md). Design in [`quant-doctor-flowchart.md`](quant-doctor-flowchart.md).
+System design in [`quant-doctor-flowchart.md`](quant-doctor-flowchart.md).
 
 ---
 

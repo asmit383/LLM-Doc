@@ -46,11 +46,16 @@ The minimum that answers "is it broken, and where?" End-to-end on the dumps path
 - [x] `report.py` — CLI table with layer heatmap + verdict (table + JSON)
 - [x] Synthetic dump generator (`scripts/make_synthetic_dumps.py`) — 4 ground-truth cases
 - [x] Verified end-to-end: healthy→PASS, degradation→DEGRADED, collapse→BROKEN (culprit localized), format_bug→BROKEN
-- [ ] `loader.py` + `capture.py` — live HF forward-hook capture (deferred; needed for small-model path)
-- [ ] PPL delta (needs eval labels — comes with live-HF path)
+- [x] `loader.py` + `capture.py` — live HF forward-hook capture (sequential load, self-quantize via bnb4/8)
+- [x] Validated on real GPU (H200): Qwen2.5-1.5B fp16 vs bnb4 → DEGRADED, mean cosine 0.99
+- [ ] PPL delta (needs eval labels — nice-to-have)
 
-**Exit criteria:** `quant-doctor diagnose-dumps` prints a layer heatmap + verdict and
-localizes injected damage to the correct layer. ✅ (dumps path)
+**Exit criteria:** `quant-doctor diagnose-dumps` localizes injected damage ✅ (dumps path);
+`quant-doctor diagnose --ref M --quantize bnb4` runs live on a real model ✅ (HF path).
+
+**Real-model finding (H200, Qwen2.5-1.5B bnb4):** quantization error concentrates in the
+final layers (26–27): MSE 20–45× the mid-stack, cosine at run minimum. The tool
+automatically surfaces the "keep late layers / lm_head at higher precision" heuristic.
 
 ---
 

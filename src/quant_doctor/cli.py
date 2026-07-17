@@ -36,6 +36,24 @@ class QuantFormat(str, Enum):
     bnb = "bnb"
 
 
+class QuantScheme(str, Enum):
+    """How to produce the target from the reference (self-quantizer flow)."""
+    none = "none"    # --target is a separate, already-quantized checkpoint
+    bnb4 = "bnb4"    # self-quantize the ref to 4-bit NF4 on load
+    bnb8 = "bnb8"    # self-quantize the ref to 8-bit on load
+
+
+# A short built-in eval passage (used when --eval-set is not given).
+_BUILTIN_EVAL = (
+    "The transformer architecture revolutionized natural language processing by "
+    "replacing recurrence with self-attention, allowing models to weigh the "
+    "relevance of every token against every other token in parallel. Quantization "
+    "reduces the numerical precision of a model's weights to shrink memory and "
+    "accelerate inference, but doing so can silently degrade quality in ways that "
+    "are hard to detect without careful, layer-by-layer measurement."
+)
+
+
 def _version_callback(value: bool) -> None:
     if value:
         console.print(f"quant-doctor {__version__}")
@@ -55,16 +73,17 @@ def main(
 @app.command()
 def diagnose(
     ref: str = typer.Option(
-        ..., "--ref", help="Reference model (unquantized / pre-quant). HF id or local path."
+        ..., "--ref", help="Reference model (full precision). HF id or local path."
     ),
-    target: str = typer.Option(
-        ..., "--target", help="Quantized model to diagnose. HF id or local path."
+    target: Optional[str] = typer.Option(
+        None, "--target", help="Already-quantized model (HF id/path). Omit when using --quantize."
+    ),
+    quantize: QuantScheme = typer.Option(
+        QuantScheme.bnb4, "--quantize",
+        help="Self-quantize the reference to produce the target (bnb4/bnb8), or 'none' to use --target.",
     ),
     eval_set: Optional[Path] = typer.Option(
-        None, "--eval-set", help="Text file of eval prompts. Defaults to a built-in wikitext sample."
-    ),
-    fmt: QuantFormat = typer.Option(
-        QuantFormat.auto, "--format", help="Quantization format of the target (auto-detected by default)."
+        None, "--eval-set", help="Text file of eval text. Defaults to a built-in passage."
     ),
     output: OutputFormat = typer.Option(
         OutputFormat.table, "--output", help="Report format."
@@ -76,18 +95,55 @@ def diagnose(
         "auto", "--device", help="Device: auto | cpu | cuda | cuda:N."
     ),
 ) -> None:
-    """Compare a reference model against its quantized version and report per-layer damage."""
-    # Phase 0: parse + echo the plan. Phase 1 wires in loader/capture/metrics/report.
+    """Compare a reference model against its quantized version and report per-layer damage.
+
+    Two modes:
+      self-quantize : --ref MODEL --quantize bnb4     (we quantize; the true self-quantizer flow)
+      compare       : --ref FP_MODEL --target QUANT_MODEL --quantize none
+    """
+    import torch
+
+    from .capture import capture_dump
+    from .engine import diagnose_pair
+    from .loader import free_model, load_quantized, load_reference, load_tokenizer
+    from .report import render_json, render_table
+
+    if quantize is QuantScheme.none and target is None:
+        raise typer.BadParameter("provide --target when --quantize none")
+
+    text = eval_set.read_text() if eval_set else _BUILTIN_EVAL
+
     console.rule("[bold]quant-doctor diagnose")
     console.print(f"  reference : [cyan]{ref}[/cyan]")
-    console.print(f"  target    : [cyan]{target}[/cyan]")
-    console.print(f"  eval set  : {eval_set or '[dim]built-in wikitext sample[/dim]'}")
-    console.print(f"  format    : {fmt.value}")
-    console.print(f"  tokens    : {max_tokens}")
-    console.print(f"  device    : {device}")
-    console.print(f"  output    : {output.value}")
+    console.print(f"  target    : [cyan]{target or f'self-quantized ({quantize.value})'}[/cyan]")
+    console.print(f"  tokens    : {max_tokens}  device: {device}\n")
+
+    tok = load_tokenizer(ref)
+    input_ids = tok(text, return_tensors="pt", truncation=True, max_length=max_tokens).input_ids
+
+    # --- Sequential capture: peak GPU memory is max(ref, quant), not the sum. ---
+    with console.status("[dim]loading + capturing reference...[/dim]"):
+        ref_model = load_reference(ref, device=device)
+        input_ids = input_ids.to(next(ref_model.parameters()).device)
+        ref_dump = capture_dump(ref_model, input_ids, model_name=f"{ref} (fp)")
+        free_model(ref_model)
+
+    with console.status("[dim]loading + capturing quantized target...[/dim]"):
+        if quantize is QuantScheme.none:
+            q_model = load_quantized(target, scheme="none", device=device)
+            q_name = target
+        else:
+            q_model = load_quantized(ref, scheme=quantize.value, device=device)
+            q_name = f"{ref} [{quantize.value}]"
+        q_dump = capture_dump(q_model, input_ids.to(next(q_model.parameters()).device), model_name=q_name)
+        free_model(q_model)
+
+    diag = diagnose_pair(ref_dump, q_dump)
     console.print()
-    console.print("[yellow]Phase 0 scaffold[/yellow] — loader/capture/metrics land in Phase 1.")
+    if output is OutputFormat.json:
+        console.print_json(render_json(diag))
+    else:
+        render_table(diag, console)
 
 
 @app.command()

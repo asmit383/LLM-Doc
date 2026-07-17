@@ -79,6 +79,20 @@ def render_table(diag: Diagnosis, console: Console | None = None) -> None:
 
     console.print(table)
 
+    # --- Failure mode + signature + prescription (Phase 2) ---
+    if diag.failure_mode:
+        body = Text()
+        body.append("FAILURE MODE: ", style="bold")
+        body.append(f"{diag.failure_mode}\n", style=style)
+        if diag.signature:
+            body.append("\nSignature:\n", style="bold")
+            for ev in diag.signature:
+                body.append(f"  • {ev}\n")
+        if diag.repair:
+            body.append("\nPrescription:\n", style="bold")
+            body.append(f"  {diag.repair}")
+        console.print(Panel(body, border_style=style, expand=False))
+
 
 def render_json(diag: Diagnosis) -> str:
     d = asdict(diag)

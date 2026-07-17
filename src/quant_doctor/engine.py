@@ -6,8 +6,10 @@ the dumps path (V4/QTIP) and, later, the live-capture path (HF models).
 
 from __future__ import annotations
 
+from .classifier import classify
 from .diagnosis import CULPRIT_COSINE, Diagnosis, LayerMetrics, decide_verdict
 from .dumps import Dump, check_pair
+from .metrics.interpretability import residual_top1_concentration
 from .metrics.statistical import layer_cosine, layer_mse, output_kl
 
 
@@ -25,6 +27,11 @@ def diagnose_pair(ref: Dump, target: Dump) -> Diagnosis:
     for lm in layers:
         lm.is_culprit = lm.index in culprits
 
+    # Error-subspace analysis is expensive (SVD) — run it only for culprit layers.
+    for lm in layers:
+        if lm.is_culprit:
+            lm.subspace_top1 = residual_top1_concentration(ref.layers[lm.index], target.layers[lm.index])
+
     cosines = [lm.cosine for lm in layers]
     mean_cos = sum(cosines) / len(cosines)
     min_cos = min(cosines)
@@ -33,7 +40,7 @@ def diagnose_pair(ref: Dump, target: Dump) -> Diagnosis:
     if ref.logits is not None and target.logits is not None:
         kl = output_kl(ref.logits, target.logits)
 
-    return Diagnosis(
+    diag = Diagnosis(
         verdict=decide_verdict(min_cos, kl),
         mean_cosine=mean_cos,
         min_cosine=min_cos,
@@ -42,3 +49,9 @@ def diagnose_pair(ref: Dump, target: Dump) -> Diagnosis:
         culprit_indices=culprits,
         model=target.model,
     )
+
+    cls = classify(diag)
+    diag.failure_mode = cls.mode.value
+    diag.signature = cls.signature
+    diag.repair = cls.repair
+    return diag

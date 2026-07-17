@@ -59,15 +59,22 @@ automatically surfaces the "keep late layers / lm_head at higher precision" heur
 
 ---
 
-## Phase 2 — Failure-Mode Classifier  `TODO`
+## Phase 2 — Failure-Mode Classifier  `DONE`
 Go from "it's broken" to "*why*, and what kind of broken."
 
-- [ ] `metrics/interpretability.py` — attention entropy, FFN sign-flip rate, logit-lens divergence, error-subspace rank
-- [ ] `metrics/propagation.py` — cross-layer error growth (QEP's Δ_m)
-- [ ] `classifier.py` — rule-based decision tree: Signal Degradation vs Computation Collapse vs Format Bug vs Early-EOS
-- [ ] Report surfaces the failure signature + repair guidance
+- [x] `metrics/interpretability.py` — error-subspace top-1 concentration (structured vs diffuse error)
+- [x] `metrics/propagation.py` — depth trend, cliff gap, clean-prefix length
+- [x] `classifier.py` — rule-based decision tree: Healthy / Signal Degradation / Computation Collapse / Format Bug / Generic
+- [x] Report surfaces failure mode + signature evidence + repair prescription
+- [ ] attention entropy / FFN sign-flip / logit-lens (need extended capture; deferred to Phase 2.5)
+- [ ] early-EOS detection from logits (needs eos_token_id in manifest; deferred)
 
-**Exit criteria:** classifier correctly labels a Signal Degradation case and a Computation Collapse case.
+**Exit criteria:** classifier correctly labels Signal Degradation and Computation Collapse. ✅
+**Validation:** 4/4 on synthetic ground-truth (healthy/degradation/collapse/format_bug)
++ real H200 run (Qwen2.5-1.5B bnb4 → Signal Degradation, correct). 5/5.
+
+Note: classifier keys off metrics computable from hidden states + logits alone, so it
+works identically on the live and dumps paths (no attention weights required).
 
 ---
 

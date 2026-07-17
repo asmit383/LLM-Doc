@@ -25,6 +25,10 @@ class LayerMetrics:
     cosine: float          # mean per-token cosine similarity (1.0 = identical)
     mse: float             # mean squared error (normalized by ref energy)
     is_culprit: bool = False
+    # Fraction of the quantization-error residual's energy in its top singular
+    # direction (computed for culprit layers only; None otherwise). High = the
+    # error is structured/low-rank; low = diffuse noise.
+    subspace_top1: float | None = None
 
 
 @dataclass
@@ -39,6 +43,10 @@ class Diagnosis:
     culprit_indices: list[int] = field(default_factory=list)
     model: str = ""
     notes: str = ""
+    # Filled in by the classifier (Phase 2).
+    failure_mode: str = ""
+    signature: list[str] = field(default_factory=list)
+    repair: str = ""
 
     @property
     def n_layers(self) -> int:

@@ -97,11 +97,19 @@ def diagnose_dumps(
     output: OutputFormat = typer.Option(OutputFormat.table, "--output", help="Report format."),
 ) -> None:
     """Diagnose from pre-dumped activations (custom stacks: QTIP / Arc / MoE)."""
-    console.rule("[bold]quant-doctor diagnose (from dumps)")
-    console.print(f"  ref dumps    : [cyan]{ref_dir}[/cyan]")
-    console.print(f"  target dumps : [cyan]{target_dir}[/cyan]")
-    console.print()
-    console.print("[yellow]Phase 0 scaffold[/yellow] — dump-comparison lands in Phase 3.")
+    # Deferred imports keep --help instant and torch out of the arg-parse path.
+    from .dumps import load_dump
+    from .engine import diagnose_pair
+    from .report import render_json, render_table
+
+    ref = load_dump(ref_dir)
+    target = load_dump(target_dir)
+    diag = diagnose_pair(ref, target)
+
+    if output is OutputFormat.json:
+        console.print_json(render_json(diag))
+    else:
+        render_table(diag, console)
 
 
 if __name__ == "__main__":

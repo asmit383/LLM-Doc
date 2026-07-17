@@ -34,17 +34,23 @@ Get a runnable package + CLI skeleton on the board before writing real logic.
 
 ---
 
-## Phase 1 — Core Diagnostic (MVP)  `TODO`
-The minimum that answers "is it broken, and where?" End-to-end on a small HF model pair.
+## Phase 1 — Core Diagnostic (MVP)  `WIP`
+The minimum that answers "is it broken, and where?" End-to-end on the dumps path
+(the V4/QTIP target). Live-HF capture deferred — same engine, different source.
 
-- [ ] `loader.py` — load ref + quantized via `AutoModelForCausalLM` (auto-detect format)
-- [ ] `capture.py` — forward hooks on every decoder layer; run eval tokens; collect paired activations
-- [ ] `metrics/statistical.py` — per-layer cosine similarity, MSE, output KL divergence, PPL delta
-- [ ] `report.py` — CLI table with the layer-wise heatmap + overall verdict
-- [ ] Threshold-based verdict (hardcoded initial thresholds from V4 experience)
-- [ ] Works on Llama-3-8B (fp) vs a self-quantized GPTQ/AWQ 4-bit and 2-bit
+- [x] Dump format spec (`docs/dump-format.md`) — the Arc↔quant-doctor contract
+- [x] `dumps.py` — load + validate paired activation dumps
+- [x] `metrics/statistical.py` — per-layer cosine, MSE, output KL divergence
+- [x] `diagnosis.py` — data structures + threshold-based verdict
+- [x] `engine.py` — `diagnose_pair()` builds a Diagnosis from two dumps
+- [x] `report.py` — CLI table with layer heatmap + verdict (table + JSON)
+- [x] Synthetic dump generator (`scripts/make_synthetic_dumps.py`) — 4 ground-truth cases
+- [x] Verified end-to-end: healthy→PASS, degradation→DEGRADED, collapse→BROKEN (culprit localized), format_bug→BROKEN
+- [ ] `loader.py` + `capture.py` — live HF forward-hook capture (deferred; needed for small-model path)
+- [ ] PPL delta (needs eval labels — comes with live-HF path)
 
-**Exit criteria:** `quant-doctor diagnose --ref X --target Y` prints a layer heatmap + PASS/BROKEN verdict on a real model pair.
+**Exit criteria:** `quant-doctor diagnose-dumps` prints a layer heatmap + verdict and
+localizes injected damage to the correct layer. ✅ (dumps path)
 
 ---
 

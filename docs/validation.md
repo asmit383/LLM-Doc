@@ -107,10 +107,52 @@ quant-doctor diagnose-dumps --ref-dir moe_expert_blowup/ref --target-dir moe_exp
 This is the differentiator: **no aggregate metric would have caught it.** It's
 exactly the V4 failure the tool was conceived for.
 
+## Method 4 — Real frontier model (DeepSeek-V4-Flash)
+
+The threshold from "toy" to "actual inspection tool": running on a real 236B-param
+MoE that no off-the-shelf framework can even load (custom arch — only the Arc
+Rust engine runs it).
+
+**Model:** `deepseek-ai/DeepSeek-V4-Flash` (public, no token, ~149 GB), served by
+Arc at 2-bit QTIP (`--isq qtip2`). Arc was patched with an env-gated per-layer
+activation dump (`V4_DUMP_DIR`); `scripts/arc_npy_to_dump.py` converts the `.npy`
+dumps into the quant-doctor format.
+
+### Case E — real V4 activations, injected fault
+
+43 real decoder layers captured from Arc's forward pass. A fault injected at
+layer 20 (post-hoc scramble) to validate localization on real V4 tensors:
+
+- **Verdict:** BROKEN. **Mode:** Computation Collapse.
+- **Localization:** onset at layer_20 (cosine 0.002), "20 clean layers before";
+  structured error (top-1 concentration 0.77).
+- **Recipe:** keep layers 19–21 + lm_head at 4-bit.
+
+**What this proves:** the pipeline ingests, localizes, classifies, and prescribes
+on real DeepSeek-V4-Flash activations (43 layers, 256-expert MoE, 4-D mHC state,
+real 2-bit QTIP tensors). **What it does NOT prove:** a naturally-occurring V4
+defect — the fault was injected. The other 42 layers read exactly 1.0000 because
+reference and target are the same real dump with one layer corrupted.
+
+### Honest limitation — no fittable reference on one H200
+
+A *natural* 2-bit-vs-higher-bit V4 diagnosis needs a higher-fidelity reference
+dump. On a single H200 (143 GB VRAM) this isn't achievable:
+
+- Native FP4/FP8 (149 GB) and BF16 dequant (236 GB) don't fit.
+- Q4K (4-bit, ~118 GB) loads only with CPU offload of the last layers → too slow.
+- Q3K (3-bit, ~140 GB) fits fully on GPU but loads too slowly to finish in-window.
+
+This is the exact single-GPU constraint quant-doctor is designed around, showing
+up for real. A genuine reference comparison is a clean 2×H200 job (the model is
+public + cached, so cheap to set up) and remains future work.
+
 ## Scorecard
 
-**8/8**: 6/6 synthetic ground-truth (pytest) + 2/2 real GPU case studies — correct
-verdict *and* failure mode in every case, including MoE expert-level localization.
+**9/9**: 6/6 synthetic ground-truth (pytest) + 3/3 real case studies (Qwen bnb4,
+Qwen injected-collapse, V4-Flash injected-collapse) — correct verdict *and* failure
+mode in every case. Plus: pipeline validated on real frontier-MoE (V4-Flash)
+activations end to end.
 
 ## Still to validate (Phase 5)
 

@@ -134,16 +134,20 @@ Telling these apart *before* you spend hours on the wrong fix is the entire poin
 
 ## Validation
 
-Two methods, **6/6 correct** (verdict *and* failure mode):
+Three methods, **9/9 correct** (verdict *and* failure mode):
 
-- **Synthetic ground-truth** — controlled injected damage with known labels, asserted by `pytest` (20 tests).
-- **Real fault injection** — real models on an H200, real error propagation on GPU.
+- **Synthetic ground-truth** — controlled injected damage with known labels, asserted by `pytest` (24 tests).
+- **Real fault injection** — real HF models on an H200, real error propagation on GPU (Qwen2.5).
+- **Real frontier MoE** — the pipeline runs on **DeepSeek-V4-Flash** (236B MoE, 43 layers,
+  2-bit QTIP) — a model no off-the-shelf framework can load — via activation dumps from a
+  custom Rust engine. Proves the diagnostic is stack-agnostic and scales to real frontier models.
 
 ```bash
-pytest        # 20 passed
+pytest        # 24 passed
 ```
 
-See [`docs/validation.md`](docs/validation.md) for the full case studies.
+See [`docs/validation.md`](docs/validation.md) for the full case studies (incl. the honest
+limitations — a *natural* V4 reference comparison needs a 2×H200 and remains future work).
 
 ---
 

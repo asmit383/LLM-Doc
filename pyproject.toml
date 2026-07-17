@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "quant-doctor"
+version = "0.1.0"
+description = "The missing QA layer for quantized LLMs — diagnose whether a quantized model is broken, where, and how to fix it."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "asmit383" }]
+keywords = ["llm", "quantization", "diagnostics", "gptq", "awq", "qtip", "debugging"]
+
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.0",
+    "numpy>=1.24",
+    "torch>=2.1",
+    "transformers>=4.40",
+    "safetensors>=0.4",
+]
+
+[project.optional-dependencies]
+# Quantization backends — install only what you use.
+gptq = ["gptqmodel>=1.0"]
+awq = ["autoawq>=0.2"]
+bnb = ["bitsandbytes>=0.43"]
+dev = ["pytest>=8.0", "ruff>=0.5"]
+
+[project.scripts]
+quant-doctor = "quant_doctor.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/quant_doctor"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

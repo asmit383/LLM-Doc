@@ -91,15 +91,23 @@ def classify(diag: Diagnosis) -> Classification:
 
     # --- Computation collapse: sharp localized cliff after a clean prefix ---
     if gap > COLLAPSE_GAP and mn < COLLAPSE_MIN_COSINE:
+        # The ROOT cause is the onset (first damaged layer), not the worst layer —
+        # after a collapse the worst cosine is often downstream propagation fallout.
+        onset_idx = prefix if prefix < n else worst.index
+        onset = diag.layers[onset_idx]
         sig = [
-            f"cliff at {worst.name}: cosine {mn:.3f} vs median {med:.3f} (gap {gap:.2f})",
-            (f"{prefix} clean layer(s) before the collapse"
-             if prefix > 0 else "damage begins at the input"),
-            f"localized: only {len(culprits)}/{n} layers flagged",
+            f"collapse onset at {onset.name} (cosine {onset.cosine:.3f}) "
+            f"after {prefix} clean layer(s)",
         ]
-        if worst.subspace_top1 is not None:
-            sig.append(f"error residual top-1 concentration {worst.subspace_top1:.2f} "
-                       f"({'structured' if worst.subspace_top1 > 0.3 else 'diffuse'})")
+        if worst.index != onset_idx:
+            sig.append(f"worst layer {worst.name} (cosine {mn:.3f}) — downstream fallout "
+                       f"as the error propagates")
+        sig.append(f"cliff gap {gap:.2f}; {len(culprits)}/{n} layers flagged")
+        conc = onset.subspace_top1
+        if conc is not None:
+            sig.append(f"error residual at onset is "
+                       f"{'structured (low-rank)' if conc > 0.3 else 'diffuse'} "
+                       f"— top-1 concentration {conc:.2f}")
         return _mk(FailureMode.COMPUTATION_COLLAPSE, sig)
 
     # --- Signal degradation: diffuse, worsening with depth, no catastrophe --

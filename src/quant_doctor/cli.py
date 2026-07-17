@@ -94,6 +94,11 @@ def diagnose(
     device: str = typer.Option(
         "auto", "--device", help="Device: auto | cpu | cuda | cuda:N."
     ),
+    inject_collapse: Optional[str] = typer.Option(
+        None, "--inject-collapse",
+        help="Fault injection: comma-separated layer indices to scramble in the target "
+             "(for validation — manufactures a Computation-Collapse case on a real model).",
+    ),
 ) -> None:
     """Compare a reference model against its quantized version and report per-layer damage.
 
@@ -110,6 +115,10 @@ def diagnose(
 
     if quantize is QuantScheme.none and target is None:
         raise typer.BadParameter("provide --target when --quantize none")
+
+    corrupt = None
+    if inject_collapse:
+        corrupt = {int(x) for x in inject_collapse.split(",") if x.strip()}
 
     text = eval_set.read_text() if eval_set else _BUILTIN_EVAL
 
@@ -135,7 +144,10 @@ def diagnose(
         else:
             q_model = load_quantized(ref, scheme=quantize.value, device=device)
             q_name = f"{ref} [{quantize.value}]"
-        q_dump = capture_dump(q_model, input_ids.to(next(q_model.parameters()).device), model_name=q_name)
+        q_dump = capture_dump(
+            q_model, input_ids.to(next(q_model.parameters()).device),
+            model_name=q_name, corrupt=corrupt,
+        )
         free_model(q_model)
 
     diag = diagnose_pair(ref_dump, q_dump)

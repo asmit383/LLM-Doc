@@ -78,16 +78,20 @@ works identically on the live and dumps paths (no attention weights required).
 
 ---
 
-## Phase 3 — Validation & Case Studies  `TODO`
+## Phase 3 — Validation & Case Studies  `WIP`
 The section that earns the top grade. Prove it works.
 
-- [ ] Bug-injection harness — corrupt a layer / mis-decode a format / force early-EOS
-- [ ] Case study A: injected Signal Degradation → tool localizes + classifies
-- [ ] Case study B: injected Computation Collapse → tool localizes + classifies
-- [ ] Case study C (Arc/V4): `--from-dumps` path; retroactively detect MXFP4-as-INT4 expert bug
-- [ ] Write-up: methodology, results, limitations
+- [x] Bug-injection harness — `quant_doctor.synthetic` (4 ground-truth cases) + live
+      `--inject-collapse` fault injection on real models
+- [x] pytest suite (`tests/`) — 16 tests, asserts verdict + mode + localization (4/4 ground-truth)
+- [x] Case study A (real, H200): bnb4 → Signal Degradation; worst layers 26–27 near lm_head
+- [x] Case study B (real, H200): injected collapse @ layer 12 → Computation Collapse,
+      onset localized to layer 12, worst (20) flagged as downstream fallout,
+      structured error (top-1 = 1.00) vs bnb4's diffuse noise
+- [x] Write-up: `docs/validation.md` (methodology, results, 6/6 scorecard)
+- [ ] Case study C (Arc/V4): dumps path; retroactively detect MXFP4-as-INT4 expert bug (Phase 5 dep)
 
-**Exit criteria:** three reproducible case studies documented with tool output.
+**Exit criteria:** reproducible case studies documented with tool output. ✅ (6/6; V4 pending Arc dumps)
 
 ---
 

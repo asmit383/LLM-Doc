@@ -39,11 +39,18 @@ def find_decoder_layers(model) -> nn.ModuleList:
 
 
 class ActivationCapture:
-    """Hook every decoder block and record its output hidden state."""
+    """Hook every decoder block and record its output hidden state.
 
-    def __init__(self, model):
+    `corrupt` — optional set of layer indices whose output is deliberately
+    scrambled (fault injection). The corrupted activation propagates through the
+    *real* downstream layers, producing genuine error propagation. Used to
+    manufacture a ground-truth Computation-Collapse case on a real model.
+    """
+
+    def __init__(self, model, corrupt: set[int] | None = None):
         self.model = model
         self.layers = find_decoder_layers(model)
+        self.corrupt = corrupt or set()
         self._acts: dict[int, torch.Tensor] = {}
         self._handles: list = []
 
@@ -51,7 +58,15 @@ class ActivationCapture:
         def fn(_module, _inp, out):
             # Decoder blocks return either a tensor or a tuple whose [0] is hidden.
             h = out[0] if isinstance(out, tuple) else out
-            # [batch, seq, hidden] -> take batch 0 -> [seq, hidden], float32 on CPU.
+
+            if idx in self.corrupt:
+                # Replace with noise scaled to each token's norm, then let it flow on.
+                noise = torch.randn_like(h)
+                scale = h.norm(dim=-1, keepdim=True) / (noise.norm(dim=-1, keepdim=True) + 1e-8)
+                h = noise * scale
+                self._acts[idx] = h.detach()[0].float().cpu()
+                return (h, *out[1:]) if isinstance(out, tuple) else h
+
             self._acts[idx] = h.detach()[0].float().cpu()
         return fn
 
@@ -87,7 +102,9 @@ class ActivationCapture:
         return Dump(manifest=manifest, layers=layers, logits=logits)
 
 
-def capture_dump(model, input_ids: torch.Tensor, model_name: str = "") -> Dump:
+def capture_dump(
+    model, input_ids: torch.Tensor, model_name: str = "", corrupt: set[int] | None = None
+) -> Dump:
     """Convenience: hook, run one forward pass, unhook, return the Dump."""
-    with ActivationCapture(model) as cap:
+    with ActivationCapture(model, corrupt=corrupt) as cap:
         return cap.capture(input_ids, model_name=model_name)

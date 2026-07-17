@@ -99,7 +99,22 @@ class ActivationCapture:
             "is_moe": False,
             "has_logits": True,
         }
+        manifest.update(self._param_counts())
         return Dump(manifest=manifest, layers=layers, logits=logits)
+
+    def _param_counts(self) -> dict:
+        """Real per-layer / head / embedding parameter counts for VRAM estimates."""
+        def count(mod) -> int:
+            return sum(p.numel() for p in mod.parameters()) if mod is not None else 0
+
+        out = {"layer_params": [count(layer) for layer in self.layers]}
+        try:
+            out["embed_params"] = count(self.model.get_input_embeddings())
+            out["lm_head_params"] = count(self.model.get_output_embeddings())
+        except Exception:
+            out["embed_params"] = 0
+            out["lm_head_params"] = 0
+        return out
 
 
 def capture_dump(

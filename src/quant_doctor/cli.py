@@ -99,6 +99,9 @@ def diagnose(
         help="Fault injection: comma-separated layer indices to scramble in the target "
              "(for validation — manufactures a Computation-Collapse case on a real model).",
     ),
+    base_bits: int = typer.Option(4, "--base-bits", help="Recipe: the target's quantization bit-width."),
+    high_bits: int = typer.Option(8, "--high-bits", help="Recipe: bit-width for protected layers."),
+    recipe_out: Optional[Path] = typer.Option(None, "--recipe-out", help="Write the recipe JSON here."),
 ) -> None:
     """Compare a reference model against its quantized version and report per-layer damage.
 
@@ -156,6 +159,21 @@ def diagnose(
         console.print_json(render_json(diag))
     else:
         render_table(diag, console)
+        _emit_recipe(diag, q_dump.manifest, base_bits, high_bits, recipe_out)
+
+
+def _emit_recipe(diag, manifest, base_bits: int, high_bits: int, recipe_out: Optional[Path]) -> None:
+    """Generate, render, and optionally save a mixed-precision recipe."""
+    import json as _json
+
+    from .recipe import generate_recipe
+    from .report import render_recipe
+
+    recipe = generate_recipe(diag, manifest, base_bits=base_bits, high_bits=high_bits)
+    render_recipe(recipe, console)
+    if recipe is not None and recipe_out is not None:
+        recipe_out.write_text(_json.dumps(recipe.to_dict(), indent=2))
+        console.print(f"[dim]recipe written to {recipe_out}[/dim]")
 
 
 @app.command()
@@ -163,6 +181,9 @@ def diagnose_dumps(
     ref_dir: Path = typer.Option(..., "--ref-dir", help="Directory of reference activation dumps."),
     target_dir: Path = typer.Option(..., "--target-dir", help="Directory of quantized activation dumps."),
     output: OutputFormat = typer.Option(OutputFormat.table, "--output", help="Report format."),
+    base_bits: int = typer.Option(2, "--base-bits", help="Recipe: the target's quantization bit-width."),
+    high_bits: int = typer.Option(4, "--high-bits", help="Recipe: bit-width for protected layers."),
+    recipe_out: Optional[Path] = typer.Option(None, "--recipe-out", help="Write the recipe JSON here."),
 ) -> None:
     """Diagnose from pre-dumped activations (custom stacks: QTIP / Arc / MoE)."""
     # Deferred imports keep --help instant and torch out of the arg-parse path.
@@ -178,6 +199,7 @@ def diagnose_dumps(
         console.print_json(render_json(diag))
     else:
         render_table(diag, console)
+        _emit_recipe(diag, target.manifest, base_bits, high_bits, recipe_out)
 
 
 if __name__ == "__main__":

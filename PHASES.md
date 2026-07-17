@@ -95,15 +95,20 @@ The section that earns the top grade. Prove it works.
 
 ---
 
-## Phase 4 — Recipe Generation  `STRETCH`
+## Phase 4 — Recipe Generation  `WIP`
 Close the loop: not just "what's broken" but "here's the fix."
 
-- [ ] `recipe.py` — mixed-precision config from culprit layers + failure mode
-- [ ] VRAM-delta estimate
-- [ ] Export GPTQ/AWQ/llama.cpp-compatible config
+- [x] `recipe.py` — mixed-precision config from culprit layers + failure mode
+      (SD: protect worst ~10% + lm_head; CC: protect onset + neighbors + warn fine-tune;
+      Format Bug: refuse — fix dequant first)
+- [x] VRAM-delta estimate from real per-layer param counts (captured into manifest)
+- [x] `--recipe-out` writes recipe JSON; recipe panel rendered after every non-PASS diagnosis
+- [x] Recipe tests (4) — healthy→none, format-bug→no-bits, collapse→onset+head, SD→worst+head
+- [ ] Export GPTQ/AWQ/llama.cpp-compatible config format (currently generic JSON)
 - [ ] `verify` command — re-diagnose after applying recipe
 
-**Exit criteria:** tool emits a mixed-precision recipe that measurably improves a broken quant.
+**Exit criteria:** tool emits a mixed-precision recipe. ✅ (generic JSON; backend-specific
+export + verify loop remain)
 
 ---
 

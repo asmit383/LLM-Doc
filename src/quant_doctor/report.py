@@ -94,6 +94,28 @@ def render_table(diag: Diagnosis, console: Console | None = None) -> None:
         console.print(Panel(body, border_style=style, expand=False))
 
 
+def render_recipe(recipe, console: Console | None = None) -> None:
+    """Render a mixed-precision Recipe panel (Phase 4)."""
+    console = console or Console()
+    if recipe is None:
+        return
+
+    body = Text()
+    body.append("RECIPE — mixed precision\n", style="bold cyan")
+    body.append(f"\n  base: {recipe.base_bits}-bit\n")
+    if recipe.overrides:
+        body.append("  keep at higher precision:\n", style="bold")
+        for ov in recipe.overrides:
+            body.append(f"    {ov.name} → {ov.bits}-bit", style="cyan")
+            body.append(f"   ({ov.reason})\n", style="dim")
+        body.append(f"\n  est. VRAM delta: +{recipe.est_vram_delta_gb:.2f} GB\n")
+    body.append(f"  confidence: {recipe.confidence}")
+    if recipe.notes:
+        body.append(f"\n\n  {recipe.notes}", style="yellow")
+
+    console.print(Panel(body, border_style="cyan", expand=False))
+
+
 def render_json(diag: Diagnosis) -> str:
     d = asdict(diag)
     d["verdict"] = diag.verdict.value

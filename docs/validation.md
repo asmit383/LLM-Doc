@@ -58,6 +58,24 @@ quant-doctor diagnose --ref Qwen/Qwen2.5-1.5B --quantize bnb4 --inject-collapse 
   component (collapse) from bnb4's diffuse rounding noise (Case A). This is the
   interpretability metric doing real work.
 
+### Recipe (Phase 4) — the fix for Case B
+
+```bash
+quant-doctor diagnose --ref Qwen/Qwen2.5-1.5B --quantize bnb4 --inject-collapse 12 \
+  --base-bits 4 --high-bits 16 --recipe-out fix.json
+```
+
+The tool prescribes a concrete mixed-precision plan targeting the *onset*:
+
+| Keep at 16-bit | Reason |
+|----------------|--------|
+| lm_head | output head — error maps straight to tokens |
+| model.layers.11 / 12 / 13 | collapse onset + neighbours |
+
+**est. VRAM delta: +0.46 GB** (real per-layer param counts), **confidence: LOW**
+(collapse — training-free won't fully recover; consider fine-tune). Exported to
+`fix.json` for re-quantization.
+
 ## Why this matters
 
 The onset-vs-worst distinction and the structured-vs-diffuse discriminator are

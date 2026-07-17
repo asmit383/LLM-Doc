@@ -75,6 +75,20 @@ Notice what it got right: the **onset** (layer 12) is named as the root cause, w
 numerically-worst layer (20) is correctly labeled *downstream fallout*. That distinction —
 and the structured-vs-diffuse error signature — is what tells you *where to actually apply the fix*.
 
+### …and on a real frontier model nothing off-the-shelf can load
+
+<p align="center">
+  <img src="docs/assets/v4-diagnosis.png" alt="quant-doctor diagnosing DeepSeek-V4-Flash" width="820">
+</p>
+
+Above: quant-doctor running on **real DeepSeek-V4-Flash** activations — a 236B-parameter MoE
+(43 layers, 2-bit QTIP) captured from a custom Rust inference engine via activation dumps.
+Here it's localizing an *injected* fault at layer 20 (Computation Collapse, structured error) —
+a **pipeline validation on real frontier-model tensors**, not a naturally-occurring defect.
+It proves the diagnostic is stack-agnostic and scales to models HF `transformers` can't even load.
+(A *natural* higher-bit-vs-2-bit V4 comparison needs a fittable reference — see
+[`docs/validation.md`](docs/validation.md) for the honest limitations.)
+
 ---
 
 ## Quickstart

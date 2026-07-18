@@ -148,20 +148,32 @@ Telling these apart *before* you spend hours on the wrong fix is the entire poin
 
 ## Validation
 
-Three methods, **9/9 correct** (verdict *and* failure mode):
+Four methods, **9/9 classification cases correct** (verdict *and* failure mode) **+ a real
+quantization ladder**:
 
 - **Synthetic ground-truth** — controlled injected damage with known labels, asserted by `pytest` (24 tests).
-- **Real fault injection** — real HF models on an H200, real error propagation on GPU (Qwen2.5).
-- **Real frontier MoE** — the pipeline runs on **DeepSeek-V4-Flash** (236B MoE, 43 layers,
-  2-bit QTIP) — a model no off-the-shelf framework can load — via activation dumps from a
-  custom Rust engine. Proves the diagnostic is stack-agnostic and scales to real frontier models.
+- **Real fault injection** — real HF models on GPU, real error propagation (Qwen2.5).
+- **Real frontier MoE** — runs on **DeepSeek-V4-Flash** (236B MoE, 43 layers, 2-bit QTIP) —
+  a model no off-the-shelf framework can load — via activation dumps from a custom Rust engine.
+- **Quantization ladder (real ground truth)** — quantize **Qwen2.5-32B** across HQQ 8/4/3/2 +
+  bitsandbytes 8/4 vs FP16; the tool tracks the *known* monotonic degradation with **no injected
+  faults**. Both methods monotonic — this is the "is your evaluation actually real?" answer.
+
+### The quantization ladder on Qwen2.5-32B
+
+<p align="center">
+  <img src="docs/assets/quant-ladder-qwen32b.png" alt="quant-doctor quantization ladder on Qwen2.5-32B" width="900">
+</p>
+
+As bits drop, mean cosine falls (1.0000 → 0.86), KL rises (0.0002 → 0.92), and culprit count
+grows — **monotonically, for both quantizers.** Real degradation on a real 32B model, measured
+against the FP16 reference. Raw data: [`docs/ladder-qwen2.5-32b.json`](docs/ladder-qwen2.5-32b.json).
 
 ```bash
 pytest        # 24 passed
 ```
 
-See [`docs/validation.md`](docs/validation.md) for the full case studies (incl. the honest
-limitations — a *natural* V4 reference comparison needs a 2×H200 and remains future work).
+See [`docs/validation.md`](docs/validation.md) for all case studies + honest limitations.
 
 ---
 

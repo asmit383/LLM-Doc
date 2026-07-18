@@ -51,9 +51,9 @@ def load_quantized(
     """Load a model, self-quantizing it on the fly.
 
     scheme:
-      bnb4 — bitsandbytes 4-bit NF4 (double-quant)
-      bnb8 — bitsandbytes 8-bit
-      none — load as-is (model_id is already a quantized checkpoint, e.g. GPTQ/AWQ)
+      bnb4 / bnb8            — bitsandbytes 4-bit NF4 / 8-bit
+      hqq8 / hqq4 / hqq3 / hqq2 — HQQ at N bits (data-free; enables a full ladder)
+      none                  — load as-is (already-quantized checkpoint, e.g. GPTQ/AWQ)
     """
     dev = _resolve_device(device)
     kwargs = dict(torch_dtype=dtype, device_map=dev, trust_remote_code=True)
@@ -70,6 +70,14 @@ def load_quantized(
             )
         else:
             kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+
+    elif scheme.startswith("hqq"):
+        from transformers import HqqConfig
+
+        nbits = int(scheme[3:])  # hqq2 -> 2, hqq4 -> 4, ...
+        # group_size 64 is the HQQ default; smaller groups help a lot at low bits.
+        group_size = 64 if nbits >= 4 else 32
+        kwargs["quantization_config"] = HqqConfig(nbits=nbits, group_size=group_size)
 
     model = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
     model.eval()

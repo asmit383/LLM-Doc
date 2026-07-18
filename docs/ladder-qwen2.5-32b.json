@@ -1,0 +1,8 @@
+[
+  {"method": "HQQ", "bits": 8, "verdict": "DEGRADED", "failure_mode": "Signal Degradation", "mean_cosine": 1.0, "min_cosine": 0.9999, "output_kl": 0.0002, "n_culprits": 2},
+  {"method": "HQQ", "bits": 4, "verdict": "DEGRADED", "failure_mode": "Signal Degradation", "mean_cosine": 0.9927, "min_cosine": 0.9833, "output_kl": 0.0561, "n_culprits": 19},
+  {"method": "HQQ", "bits": 3, "verdict": "DEGRADED", "failure_mode": "Signal Degradation", "mean_cosine": 0.9754, "min_cosine": 0.9414, "output_kl": 0.2048, "n_culprits": 15},
+  {"method": "HQQ", "bits": 2, "verdict": "DEGRADED", "failure_mode": "Signal Degradation", "mean_cosine": 0.8606, "min_cosine": 0.7542, "output_kl": 0.9236, "n_culprits": 53},
+  {"method": "bitsandbytes", "bits": 8, "verdict": "DEGRADED", "failure_mode": "Signal Degradation", "mean_cosine": 0.9945, "min_cosine": 0.9929, "output_kl": 0.0218, "n_culprits": 9},
+  {"method": "bitsandbytes", "bits": 4, "verdict": "DEGRADED", "failure_mode": "Signal Degradation", "mean_cosine": 0.9924, "min_cosine": 0.985, "output_kl": 0.0615, "n_culprits": 19}
+]

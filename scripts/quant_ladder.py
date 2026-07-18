@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 from pathlib import Path
 
@@ -62,7 +63,11 @@ def main() -> None:
     ref_model = load_reference(args.model, device=args.device)
     input_ids = input_ids.to(next(ref_model.parameters()).device)
     ref_dump = capture_dump(ref_model, input_ids, model_name=f"{args.model} (fp16)")
-    free_model(ref_model)
+    # Free in caller scope — free_model()'s `del` only drops its own arg binding,
+    # not ours, so the model would stay resident and OOM the next load.
+    del ref_model
+    gc.collect()
+    torch.cuda.empty_cache()
 
     rows = []
     for scheme, method, bits in LADDER:
@@ -73,7 +78,9 @@ def main() -> None:
                 qm, input_ids.to(next(qm.parameters()).device),
                 model_name=f"{args.model} [{scheme}]",
             )
-            free_model(qm)
+            del qm
+            gc.collect()
+            torch.cuda.empty_cache()
             diag = diagnose_pair(ref_dump, q_dump)
             rows.append({
                 "method": method, "bits": bits, "scheme": scheme,

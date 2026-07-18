@@ -6,6 +6,7 @@ of whether they came from live capture or dumps.
 
 from __future__ import annotations
 
+import statistics
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -59,21 +60,72 @@ class Diagnosis:
 
 # --- Verdict thresholds (initial, hand-set; calibrated against real dumps later) ---
 
-# A layer below this absolute cosine is flagged as a culprit.
-CULPRIT_COSINE = 0.90
-# Any layer below this, or output KL above KL_BROKEN, means BROKEN.
+# --- Adaptive culprit detection ---
+# A layer below this absolute cosine is ALWAYS a culprit (catches gross/uniform
+# damage regardless of the model's distribution).
+ABSOLUTE_FLOOR = 0.90
+# A layer at or above this cosine is NEVER a culprit (guards against flagging
+# near-perfect layers as "anomalies" on an otherwise healthy model).
+HEALTHY_CEILING = 0.98
+# Robust z-score (median + MAD) cutoff for flagging a layer as anomalous
+# *relative to this model's own layer distribution*.
+OUTLIER_Z = 3.5
+
+# Back-compat alias — clean_prefix_len and older callers use this as the
+# "is this layer clean" threshold.
+CULPRIT_COSINE = ABSOLUTE_FLOOR
+
+# Verdict thresholds.
 BROKEN_COSINE = 0.70
 KL_BROKEN = 1.0
-# Milder divergence -> DEGRADED.
 DEGRADED_COSINE = 0.95
 KL_DEGRADED = 0.1
 
 
-def decide_verdict(min_cosine: float, output_kl: float | None) -> Verdict:
-    """Map the worst layer + output divergence onto a coarse verdict."""
+def find_culprit_indices(cosines: list[float]) -> list[int]:
+    """Flag damaged layers adaptively.
+
+    Three rules, in order:
+      1. absolute floor   — cosine < ABSOLUTE_FLOOR is always a culprit
+      2. healthy ceiling  — cosine >= HEALTHY_CEILING is never a culprit
+      3. relative outlier — in the band between, a layer is a culprit if it's a
+         robust-z outlier below the model's own median (architecture-agnostic).
+
+    The median + MAD estimator makes this work across architectures whose healthy
+    baseline differs, while the floor/ceiling guards prevent both missed gross
+    damage and false positives on uniformly-healthy or uniformly-degraded models.
+    """
+    if not cosines:
+        return []
+    med = statistics.median(cosines)
+    mad = statistics.median([abs(c - med) for c in cosines])
+    scale = 1.4826 * mad  # MAD -> normal-consistent std estimate
+
+    culprits: list[int] = []
+    for i, c in enumerate(cosines):
+        if c < ABSOLUTE_FLOOR:
+            culprits.append(i)
+        elif c >= HEALTHY_CEILING:
+            continue
+        elif scale < 1e-6:
+            # Tight distribution: only flag if the model is otherwise healthy
+            # (median near-perfect) but THIS layer dropped out of the band.
+            # If the median itself is in the band, damage is uniform/diffuse —
+            # not a per-layer culprit (the verdict handles it as DEGRADED).
+            if med >= HEALTHY_CEILING:
+                culprits.append(i)
+        elif (med - c) / scale > OUTLIER_Z:
+            culprits.append(i)
+    return culprits
+
+
+def decide_verdict(min_cosine: float, output_kl: float | None, n_culprits: int = 0) -> Verdict:
+    """Map the worst layer + output divergence + culprit count onto a verdict."""
     kl = output_kl if output_kl is not None else 0.0
     if min_cosine < BROKEN_COSINE or kl > KL_BROKEN:
         return Verdict.BROKEN
-    if min_cosine < DEGRADED_COSINE or kl > KL_DEGRADED:
+    # Any flagged culprit means it's at least DEGRADED — keeps the verdict
+    # consistent with the layer table (no "PASS" with a flagged layer).
+    if n_culprits > 0 or min_cosine < DEGRADED_COSINE or kl > KL_DEGRADED:
         return Verdict.DEGRADED
     return Verdict.PASS

@@ -7,7 +7,13 @@ the dumps path (V4/QTIP) and, later, the live-capture path (HF models).
 from __future__ import annotations
 
 from .classifier import classify
-from .diagnosis import CULPRIT_COSINE, Diagnosis, LayerMetrics, decide_verdict
+from .diagnosis import (
+    CULPRIT_COSINE,
+    Diagnosis,
+    LayerMetrics,
+    decide_verdict,
+    find_culprit_indices,
+)
 from .dumps import Dump, check_pair
 from .metrics.interpretability import residual_top1_concentration
 from .metrics.statistical import layer_cosine, layer_mse, output_kl
@@ -23,7 +29,9 @@ def diagnose_pair(ref: Dump, target: Dump) -> Diagnosis:
         mse = layer_mse(a, b)
         layers.append(LayerMetrics(index=i, name=f"layer_{i:02d}", cosine=cos, mse=mse))
 
-    culprits = [lm.index for lm in layers if lm.cosine < CULPRIT_COSINE]
+    # Adaptive: flag layers anomalous relative to this model's own distribution
+    # (plus an absolute floor + healthy ceiling). Architecture-agnostic.
+    culprits = find_culprit_indices([lm.cosine for lm in layers])
 
     # --- MoE: per-expert diagnosis. A single dead expert can hide behind a
     # healthy-looking layer average, so we flag at expert granularity. ---
@@ -61,7 +69,7 @@ def diagnose_pair(ref: Dump, target: Dump) -> Diagnosis:
         kl = output_kl(ref.logits, target.logits)
 
     diag = Diagnosis(
-        verdict=decide_verdict(min_cos, kl),
+        verdict=decide_verdict(min_cos, kl, n_culprits=len(culprits)),
         mean_cosine=mean_cos,
         min_cosine=min_cos,
         output_kl=kl,

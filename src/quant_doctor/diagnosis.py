@@ -34,6 +34,10 @@ class LayerMetrics:
     # and the resulting confidence ("high" = floor/≥2 agree, "low" = single signal).
     metric_votes: int = 0
     confidence: str = ""
+    # Multi-prompt: std of cosine across prompts (error bar) and the fraction of
+    # prompts that individually flagged this layer (1.0 for single-prompt runs).
+    cosine_std: float = 0.0
+    prompt_agreement: float = 1.0
     # --- MoE (present only for expert layers) ---
     expert_cosines: list[float] | None = None   # per-expert cosine, len = n_experts
     culprit_experts: list[int] = field(default_factory=list)
@@ -74,6 +78,10 @@ HEALTHY_CEILING = 0.98
 # Robust z-score (median + MAD) cutoff for flagging a layer as anomalous
 # *relative to this model's own layer distribution*.
 OUTLIER_Z = 3.5
+
+# Multi-prompt: a layer must be flagged in at least this fraction of prompts to
+# count as a real (not prompt-specific) culprit. 0.5 = majority.
+MIN_PROMPT_AGREEMENT = 0.5
 
 # Back-compat alias — clean_prefix_len and older callers use this as the
 # "is this layer clean" threshold.

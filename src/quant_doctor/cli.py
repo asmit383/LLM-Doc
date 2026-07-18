@@ -202,5 +202,38 @@ def diagnose_dumps(
         _emit_recipe(diag, target.manifest, base_bits, high_bits, recipe_out)
 
 
+@app.command()
+def diagnose_multi(
+    root: Path = typer.Option(
+        ..., "--root",
+        help="Parent dir with one subdir per prompt, each containing ref/ and target/.",
+    ),
+    output: OutputFormat = typer.Option(OutputFormat.table, "--output", help="Report format."),
+) -> None:
+    """Aggregate a diagnosis across several prompts (kills prompt-dependence).
+
+    Layout:  <root>/<prompt-name>/ref  and  <root>/<prompt-name>/target
+    A layer is flagged only if a majority of prompts agree it's damaged.
+    """
+    from .dumps import load_dump
+    from .engine import diagnose_multi as _diagnose_multi
+    from .report import render_json, render_table
+
+    prompt_dirs = sorted(p for p in root.iterdir() if (p / "ref").is_dir() and (p / "target").is_dir())
+    if not prompt_dirs:
+        raise typer.BadParameter(f"no <prompt>/ref + <prompt>/target subdirs found under {root}")
+
+    console.print(f"[dim]aggregating over {len(prompt_dirs)} prompts:"
+                  f" {', '.join(p.name for p in prompt_dirs)}[/dim]\n")
+    refs = [load_dump(p / "ref") for p in prompt_dirs]
+    targets = [load_dump(p / "target") for p in prompt_dirs]
+    diag = _diagnose_multi(refs, targets)
+
+    if output is OutputFormat.json:
+        console.print_json(render_json(diag))
+    else:
+        render_table(diag, console)
+
+
 if __name__ == "__main__":
     app()

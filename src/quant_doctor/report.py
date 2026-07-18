@@ -57,13 +57,21 @@ def render_table(diag: Diagnosis, console: Console | None = None) -> None:
     summary.append(f"min cosine : {diag.min_cosine:.4f}")
     if diag.output_kl is not None:
         summary.append(f"\noutput KL  : {diag.output_kl:.4f} nats")
+    if diag.notes:
+        summary.append(f"\n{diag.notes}", style="dim")
 
     console.print(Panel(summary, title=header, border_style=style, expand=False))
+
+    # Show error-bar + agreement columns only for multi-prompt runs.
+    multi = any(lm.cosine_std > 0 for lm in diag.layers)
 
     table = Table(title="Layer Health", show_lines=False, header_style="bold")
     table.add_column("Layer", justify="right")
     table.add_column("Heatmap", justify="left")
     table.add_column("Cosine", justify="right")
+    if multi:
+        table.add_column("±std", justify="right")
+        table.add_column("agree", justify="right")
     table.add_column("MSE", justify="right")
     table.add_column("", justify="left")
 
@@ -74,13 +82,11 @@ def render_table(diag: Diagnosis, console: Console | None = None) -> None:
             flag = Text(f"← CRITICAL{conf}", style=style)
         else:
             flag = Text("")
-        table.add_row(
-            lm.name,
-            _bar(lm.cosine),
-            f"{lm.cosine:.4f}",
-            f"{lm.mse:.3e}",
-            flag,
-        )
+        row = [lm.name, _bar(lm.cosine), f"{lm.cosine:.4f}"]
+        if multi:
+            row += [f"{lm.cosine_std:.3f}", f"{lm.prompt_agreement:.0%}"]
+        row += [f"{lm.mse:.3e}", flag]
+        table.add_row(*row)
 
     console.print(table)
 

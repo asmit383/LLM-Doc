@@ -8,11 +8,12 @@ from __future__ import annotations
 
 from .classifier import classify
 from .diagnosis import (
-    CULPRIT_COSINE,
+    ABSOLUTE_FLOOR,
     Diagnosis,
     LayerMetrics,
     decide_verdict,
     find_culprit_indices,
+    robust_high_outliers,
 )
 from .dumps import Dump, check_pair
 from .metrics.interpretability import residual_top1_concentration
@@ -29,9 +30,24 @@ def diagnose_pair(ref: Dump, target: Dump) -> Diagnosis:
         mse = layer_mse(a, b)
         layers.append(LayerMetrics(index=i, name=f"layer_{i:02d}", cosine=cos, mse=mse))
 
-    # Adaptive: flag layers anomalous relative to this model's own distribution
-    # (plus an absolute floor + healthy ceiling). Architecture-agnostic.
-    culprits = find_culprit_indices([lm.cosine for lm in layers])
+    # --- Ensemble culprit detection ---
+    # Two independent signals vote, each via adaptive median/MAD outlier detection:
+    #   cosine (direction) — find_culprit_indices, with absolute floor + ceiling
+    #   MSE    (magnitude) — robust_high_outliers; catches cosine's blind spot
+    #                        (a layer whose scale blows up but direction is intact)
+    cos_flags = set(find_culprit_indices([lm.cosine for lm in layers]))
+    mse_flags = set(robust_high_outliers([lm.mse for lm in layers]))
+
+    culprits: list[int] = []
+    for lm in layers:
+        votes = (lm.index in cos_flags) + (lm.index in mse_flags)
+        lm.metric_votes = int(votes)
+        floored = lm.cosine < ABSOLUTE_FLOOR
+        if floored or votes >= 1:
+            culprits.append(lm.index)
+            # High confidence when it's gross damage or corroborated by 2 signals;
+            # a single-signal flag is surfaced but marked low-confidence.
+            lm.confidence = "high" if (floored or votes >= 2) else "low"
 
     # --- MoE: per-expert diagnosis. A single dead expert can hide behind a
     # healthy-looking layer average, so we flag at expert granularity. ---
@@ -41,11 +57,14 @@ def diagnose_pair(ref: Dump, target: Dump) -> Diagnosis:
         lm = layers[li]
         ref_experts, q_experts = ref.experts[li], target.experts[li]
         lm.expert_cosines = [layer_cosine(a, b) for a, b in zip(ref_experts, q_experts)]
-        lm.culprit_experts = [e for e, c in enumerate(lm.expert_cosines) if c < CULPRIT_COSINE]
+        lm.culprit_experts = [e for e, c in enumerate(lm.expert_cosines) if c < ABSOLUTE_FLOOR]
         if li in ref.routers and li in target.routers:
             lm.router_kl = output_kl(ref.routers[li], target.routers[li])
-        if lm.culprit_experts and li not in culprits:
-            culprits.append(li)  # dead expert => the layer is a culprit even if its mean looks fine
+        if lm.culprit_experts:
+            # A dead expert is a strong signal even if the block average looks fine.
+            lm.confidence = "high"
+            if li not in culprits:
+                culprits.append(li)
 
     for lm in layers:
         lm.is_culprit = lm.index in culprits

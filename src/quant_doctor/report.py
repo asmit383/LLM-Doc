@@ -68,7 +68,12 @@ def render_table(diag: Diagnosis, console: Console | None = None) -> None:
     table.add_column("", justify="left")
 
     for lm in diag.layers:
-        flag = Text("← CRITICAL", style="bold red") if lm.is_culprit else Text("")
+        if lm.is_culprit:
+            conf = f" ({lm.confidence} conf)" if lm.confidence else ""
+            style = "bold red" if lm.confidence != "low" else "bold yellow"
+            flag = Text(f"← CRITICAL{conf}", style=style)
+        else:
+            flag = Text("")
         table.add_row(
             lm.name,
             _bar(lm.cosine),

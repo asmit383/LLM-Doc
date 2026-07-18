@@ -30,6 +30,10 @@ class LayerMetrics:
     # direction (computed for culprit layers only; None otherwise). High = the
     # error is structured/low-rank; low = diffuse noise.
     subspace_top1: float | None = None
+    # Ensemble: how many independent metrics flagged this layer (cosine, MSE, ...)
+    # and the resulting confidence ("high" = floor/≥2 agree, "low" = single signal).
+    metric_votes: int = 0
+    confidence: str = ""
     # --- MoE (present only for expert layers) ---
     expert_cosines: list[float] | None = None   # per-expert cosine, len = n_experts
     culprit_experts: list[int] = field(default_factory=list)
@@ -117,6 +121,28 @@ def find_culprit_indices(cosines: list[float]) -> list[int]:
         elif (med - c) / scale > OUTLIER_Z:
             culprits.append(i)
     return culprits
+
+
+def robust_high_outliers(values: list[float], z: float = OUTLIER_Z) -> list[int]:
+    """Indices that are outliers on the HIGH side, via median + MAD.
+
+    For error metrics where *bigger = worse* (e.g. normalized MSE). Mirror of the
+    low-side logic in find_culprit_indices. Returns [] when the spread is
+    degenerate (all values ~equal) so a uniform model flags nothing.
+    """
+    if not values:
+        return []
+    med = statistics.median(values)
+    devs = [abs(v - med) for v in values]
+    scale = 1.4826 * statistics.median(devs)
+    if scale < 1e-6:
+        # Degenerate spread (majority of values identical, e.g. a lone spike
+        # among near-zeros). MAD is 0, so fall back to the mean deviation — this
+        # still isolates a dramatic single outlier while ignoring uniform data.
+        scale = 1.4826 * (sum(devs) / len(devs))
+        if scale < 1e-6:
+            return []  # truly all identical
+    return [i for i, v in enumerate(values) if (v - med) / scale > z]
 
 
 def decide_verdict(min_cosine: float, output_kl: float | None, n_culprits: int = 0) -> Verdict:

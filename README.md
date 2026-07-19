@@ -12,11 +12,14 @@
 ---
 
 Everyone ships **quantizers** — GPTQ, AWQ, bitsandbytes, QTIP, llama.cpp, dozens more.
-Nobody ships the thing that tells you your quantized model is **silently broken** and **why**.
+Benchmarkers (LLMC, lm-eval) report *aggregate* quality — a perplexity number. But no shipped
+tool combines **per-layer failure-mode classification** (why did it break) **+ a mixed-precision
+prescription** (how to fix it) **+ MoE per-expert diagnostics** — the layer that tells you your
+quantized model is silently broken *and where and why.*
 
 The research community only *named* these failure modes in 2026
 ([*From Signal Degradation to Computation Collapse*](https://arxiv.org/abs/2604.19884), ACL 2026 Findings).
-The intellectual foundation exists. The product didn't. This is the product.
+The taxonomy exists in a paper; this productizes it into a diagnostic.
 
 > Built for the person **holding the quantizer** — fine-tuners, quantization researchers,
 > infra teams — not the person downloading a pre-made quant. If you quantize your own
@@ -37,57 +40,64 @@ The intellectual foundation exists. The product didn't. This is the product.
 
 ## See it work
 
-Take a healthy model, quantize it, and inject a fault at layer 12 — the tool localizes
-the root cause and prescribes the fix. **Real run, real H200, real Qwen2.5-1.5B:**
+### The quantization ladder — real degradation, nothing injected
+
+<p align="center">
+  <img src="docs/assets/quant-ladder-qwen32b.png" alt="quant-doctor quantization ladder on Qwen2.5-32B" width="900">
+</p>
+
+This is the core validation: quantize **Qwen2.5-32B** at 8/4/3/2-bit (HQQ + bitsandbytes) and
+measure each against the FP16 reference. As bits drop, **mean cosine falls (1.0000 → 0.86),
+KL rises (0.0002 → 0.92), culprit count grows — monotonically, for both quantizers.** On a
+real model, with real quantization, the tool tracks the *known* degradation with **no injected
+faults.** Fully reproducible on any GPU that fits the model:
+
+```bash
+python scripts/quant_ladder.py --model Qwen/Qwen2.5-32B-Instruct
+```
+
+Raw data: [`docs/ladder-qwen2.5-32b.json`](docs/ladder-qwen2.5-32b.json).
+
+**The finding it surfaces:** 3-bit holds ~97.5% fidelity; 2-bit drops to ~86% — a brutal cliff
+for "one bit" (it's really a *third* of the bit budget). The tool measures that tradeoff on
+*your* model instead of you guessing.
+
+### How it localizes damage (controlled fault-injection test)
+
+To validate the localization + failure-mode classification precisely, we inject a *known* fault
+and confirm the tool finds it. Here layer 12 of a real quantized Qwen2.5-1.5B is deliberately
+scrambled (`--inject-collapse 12`):
 
 ```console
 $ quant-doctor diagnose --ref Qwen/Qwen2.5-1.5B --quantize bnb4 --inject-collapse 12
 
-╭─ VERDICT: BROKEN  (16 culprit layers) ─╮
-│ model      : Qwen/Qwen2.5-1.5B [bnb4]  │
-│ mean cosine: 0.4854   min: -0.0407     │
-│ output KL  : 14.66 nats                │
-╰────────────────────────────────────────╯
-          Layer Health
-  layer_11 ████████████████████ 0.9911
-  layer_12 ░░░░░░░░░░░░░░░░░░░░ -0.0025  ← CRITICAL   ← injected fault
-  layer_13 ██░░░░░░░░░░░░░░░░░░  0.0937  ← CRITICAL
-  ...                                                 ← real error propagation
-  layer_20 ░░░░░░░░░░░░░░░░░░░░ -0.0407  ← CRITICAL
-
-╭─ FAILURE MODE: Computation Collapse ───────────────────────────────╮
-│ Signature:                                                         │
-│   • collapse onset at layer_12 (cosine 0.000) after 12 clean layers│
-│   • worst layer layer_20 — downstream fallout, not the root cause  │
-│   • error residual at onset is structured (low-rank), top-1 = 1.00 │
-╰────────────────────────────────────────────────────────────────────╯
-
-╭─ RECIPE — mixed precision ─────────────────────────────────────────╮
-│   base: 4-bit                                                      │
-│   keep at higher precision:                                        │
-│     lm_head        → 16-bit   (errors map straight to tokens)      │
-│     model.layers.12 → 16-bit  (collapse onset)                     │
-│   est. VRAM delta: +0.46 GB    confidence: LOW (consider fine-tune)│
-╰────────────────────────────────────────────────────────────────────╯
+╭─ VERDICT: BROKEN  (16 culprit layers) ─╮   FAILURE MODE: Computation Collapse
+│ model : Qwen/Qwen2.5-1.5B [bnb4]       │   • onset at layer_12 after 12 clean layers
+│ mean cosine: 0.4854   min: -0.0407     │   • worst layer 20 — downstream fallout, not root
+╰────────────────────────────────────────╯   • error at onset is structured (low-rank)
+  layer_12 ░░░░░░░░░░  -0.0025  ← CRITICAL  (the injected fault)
+  layer_13 ██░░░░░░░░   0.0937  ← CRITICAL  (real propagation through the network)
+  layer_20 ░░░░░░░░░░  -0.0407  ← CRITICAL  (downstream fallout)
 ```
 
-Notice what it got right: the **onset** (layer 12) is named as the root cause, while the
-numerically-worst layer (20) is correctly labeled *downstream fallout*. That distinction —
-and the structured-vs-diffuse error signature — is what tells you *where to actually apply the fix*.
+⚠️ **This is a controlled test** — the fault is *injected* so we know ground truth. What it
+proves is the *localization*: it names the **onset** (layer 12) as the root cause and layer 20
+as downstream fallout, via the structured-vs-diffuse error signature. Real error propagation,
+deliberately planted fault.
 
-### …and on a real frontier model nothing off-the-shelf can load
+### Scaling to frontier models — a private-stack case study
 
 <p align="center">
-  <img src="docs/assets/v4-diagnosis.png" alt="quant-doctor diagnosing DeepSeek-V4-Flash" width="820">
+  <img src="docs/assets/v4-diagnosis.png" alt="quant-doctor on DeepSeek-V4-Flash activations" width="820">
 </p>
 
-Above: quant-doctor running on **real DeepSeek-V4-Flash** activations — a 236B-parameter MoE
-(43 layers, 2-bit QTIP) captured from a custom Rust inference engine via activation dumps.
-Here it's localizing an *injected* fault at layer 20 (Computation Collapse, structured error) —
-a **pipeline validation on real frontier-model tensors**, not a naturally-occurring defect.
-It proves the diagnostic is stack-agnostic and scales to models HF `transformers` can't even load.
-(A *natural* higher-bit-vs-2-bit V4 comparison needs a fittable reference — see
-[`docs/validation.md`](docs/validation.md) for the honest limitations.)
+quant-doctor also runs on **real DeepSeek-V4-Flash activations** (236B MoE, 43 layers, 2-bit
+QTIP), captured from **Arc — a custom Rust inference engine.** ⚠️ **Not publicly reproducible**
+(needs Arc), so treat this as a *private-stack case study*, not a public demo. The fault shown
+is again **injected** (layer 20) — it proves the pipeline handles frontier-scale tensors, not
+that it caught a natural V4 defect. A *natural* V4 quant diagnosis needs a full-precision 236B
+reference that doesn't fit on one GPU — genuine future work. Honest limitations:
+[`docs/validation.md`](docs/validation.md).
 
 ---
 
@@ -148,32 +158,24 @@ Telling these apart *before* you spend hours on the wrong fix is the entire poin
 
 ## Validation
 
-Four methods, **9/9 classification cases correct** (verdict *and* failure mode) **+ a real
-quantization ladder**:
+Three layers of evidence, honestly separated (real vs injected):
 
-- **Synthetic ground-truth** — controlled injected damage with known labels, asserted by `pytest` (24 tests).
-- **Real fault injection** — real HF models on GPU, real error propagation (Qwen2.5).
-- **Real frontier MoE** — runs on **DeepSeek-V4-Flash** (236B MoE, 43 layers, 2-bit QTIP) —
-  a model no off-the-shelf framework can load — via activation dumps from a custom Rust engine.
-- **Quantization ladder (real ground truth)** — quantize **Qwen2.5-32B** across HQQ 8/4/3/2 +
-  bitsandbytes 8/4 vs FP16; the tool tracks the *known* monotonic degradation with **no injected
-  faults**. Both methods monotonic — this is the "is your evaluation actually real?" answer.
-
-### The quantization ladder on Qwen2.5-32B
-
-<p align="center">
-  <img src="docs/assets/quant-ladder-qwen32b.png" alt="quant-doctor quantization ladder on Qwen2.5-32B" width="900">
-</p>
-
-As bits drop, mean cosine falls (1.0000 → 0.86), KL rises (0.0002 → 0.92), and culprit count
-grows — **monotonically, for both quantizers.** Real degradation on a real 32B model, measured
-against the FP16 reference. Raw data: [`docs/ladder-qwen2.5-32b.json`](docs/ladder-qwen2.5-32b.json).
+1. **Real quantization ladder — the keystone, nothing injected.** Qwen2.5-32B across HQQ
+   8/4/3/2 + bitsandbytes 8/4 vs FP16; both quantizers track the *known* monotonic degradation
+   (shown above). Real model, real quantization, no planted faults. Fully reproducible.
+2. **Synthetic ground-truth (`pytest`, 38 tests).** Controlled injected damage with known
+   labels — the classifier must recover the right failure mode + culprit layer/expert.
+3. **Fault-localization on real activations.** Inject a *known* fault into a real quantized
+   model (Qwen2.5 live, and DeepSeek-V4-Flash via the private Arc stack) and confirm the tool
+   localizes it. Proves localization on real tensors — the fault is injected, not natural.
 
 ```bash
-pytest        # 24 passed
+pytest        # 38 passed
 ```
 
-See [`docs/validation.md`](docs/validation.md) for all case studies + honest limitations.
+See [`docs/validation.md`](docs/validation.md) for all case studies and the honest limitations —
+including that the V4 case is a private-stack study with an injected fault, and that
+cross-architecture calibration breadth is still growing.
 
 ---
 
@@ -202,14 +204,15 @@ System design in [`quant-doctor-flowchart.md`](quant-doctor-flowchart.md).
 
 ## Why it's defensible
 
-- **The gap is real and confirmed** — quantizers apply quantization; benchmarkers (LLMC)
-  report aggregate perplexity. *Nothing* classifies failure modes, attributes damage to
-  layers, or prescribes a mixed-precision fix.
+- **The gap is specific and real** — quantizers apply quantization; benchmarkers (LLMC, lm-eval)
+  report aggregate quality. The uncontested niche is the *combination*: per-layer failure-mode
+  classification **+** a mixed-precision prescription **+** MoE per-expert diagnostics.
 - **The moat is calibration, not code** — a weekend wrapper can compute cosine similarity.
-  The value is in the calibrated thresholds and per-architecture failure signatures —
-  including **MoE per-expert diagnostics** no published tool offers.
+  The durable value is calibrated thresholds and per-architecture failure signatures. *(Honest
+  status: calibration is validated on a real 32B ladder + synthetic ground truth today;
+  broadening across architectures/quantizers is active work — see the roadmap.)*
 - **The engine is format-agnostic** — one diagnostic core serves GPTQ, AWQ, bitsandbytes,
-  and custom trellis quantizers (QTIP) alike.
+  and custom trellis quantizers (QTIP) alike, from live hooks or activation dumps.
 
 ## Non-goals
 

@@ -10,7 +10,7 @@ fault injection** (real model, real quantization, real error propagation on GPU)
 expected labels. The test suite asserts the engine recovers each. Repeatable:
 
 ```bash
-pytest            # 16 passed
+pytest            # 38 passed
 ```
 
 | Case | Injected damage | Expected verdict | Expected mode | Result |
@@ -178,14 +178,35 @@ Two honest findings this surfaced:
   matches the literature (larger models are more quantization-robust) and validates
   the classifier's diffuse-vs-structural distinction on a real model.
 
-## Scorecard
+## Scorecard — honestly separated
 
-**9/9** classification cases (6 synthetic + 3 real) + **the quantization ladder**
-(real monotonic degradation on Qwen2.5-32B across 6 method/bit-width points, both
-methods monotonic). The ladder is the real-ground-truth validation — not injected.
+**Real ground truth (nothing injected):**
+- **Quantization ladder** — Qwen2.5-32B, HQQ 8/4/3/2 + bnb 8/4 vs FP16, both methods
+  monotonic. This is the keystone.
+- **Live degradation** — Qwen2.5-1.5B bnb4 → Signal Degradation (natural, mild).
 
-## Still to validate (Phase 5)
+**Synthetic ground truth (`pytest`, 38 tests):** 6 controlled cases (healthy /
+signal-degradation / computation-collapse / format-bug + 2 MoE), classifier recovers
+every expected verdict, failure mode, and culprit.
 
-The DeepSeek-V4 / QTIP case study via the dumps path — real MoE, real 2-bit
-trellis quantization, per-expert diagnostics. Requires Arc to emit dumps in the
-v1 format (`docs/dump-format.md`).
+**Fault-localization on real activations (injected, not natural):**
+- Qwen2.5-1.5B, layer 12 scrambled → localized as onset (Computation Collapse).
+- DeepSeek-V4-Flash (via Arc), layer 20 scrambled → localized at 236B scale.
+  *This is a private-stack case study with an injected fault — see below.*
+
+## Honest limitations / still to validate
+
+- **The V4 case is not a natural-defect diagnosis.** The fault is injected; the other
+  layers read ~1.0 because ref and target are the same dump with one layer corrupted.
+  It proves the pipeline handles frontier-scale tensors, not that it caught a real V4
+  quant defect. It also **isn't reproducible without Arc** (a private Rust engine) — treat
+  it as a private-stack case study, not a public demo.
+- **A *natural* V4 diagnosis** needs a full-precision 236B reference that doesn't fit on
+  one GPU — a 2×H200 job, future work.
+- **Calibration breadth is thin** — thresholds are validated on one 1.5B model, one 32B
+  ladder, and synthetic ground truth (where `synthetic.py` is both injector and oracle,
+  which is somewhat circular). Cross-architecture / cross-quantizer transfer (Llama,
+  Mistral, external AWQ/GPTQ checkpoints) is the least-tested axis and the top priority.
+- **Verdict discrimination** — near-lossless (8-bit) currently reads DEGRADED because the
+  MSE voter is over-sensitive at the healthy end; a healthy-floor fix is in progress so a
+  clean quant gets a trustworthy PASS.

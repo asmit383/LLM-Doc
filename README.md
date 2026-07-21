@@ -163,14 +163,14 @@ Three layers of evidence, honestly separated (real vs injected):
 1. **Real quantization ladder — the keystone, nothing injected.** Qwen2.5-32B across HQQ
    8/4/3/2 + bitsandbytes 8/4 vs FP16; both quantizers track the *known* monotonic degradation
    (shown above). Real model, real quantization, no planted faults. Fully reproducible.
-2. **Synthetic ground-truth (`pytest`, 38 tests).** Controlled injected damage with known
+2. **Synthetic ground-truth (`pytest`, 40 tests).** Controlled injected damage with known
    labels — the classifier must recover the right failure mode + culprit layer/expert.
 3. **Fault-localization on real activations.** Inject a *known* fault into a real quantized
    model (Qwen2.5 live, and DeepSeek-V4-Flash via the private Arc stack) and confirm the tool
    localizes it. Proves localization on real tensors — the fault is injected, not natural.
 
 ```bash
-pytest        # 38 passed
+pytest        # 40 passed
 ```
 
 See [`docs/validation.md`](docs/validation.md) for all case studies and the honest limitations —

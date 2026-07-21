@@ -79,6 +79,16 @@ HEALTHY_CEILING = 0.98
 # *relative to this model's own layer distribution*.
 OUTLIER_Z = 3.5
 
+# MSE healthy floor — mirror of HEALTHY_CEILING for the magnitude voter. A layer
+# whose normalized MSE is at or below this is NEVER an MSE culprit, no matter how
+# it ranks against the model's own distribution. layer_mse is energy-normalized
+# (‖a-b‖²/‖a‖² ≈ 2·(1-cos) under equal norms), so 0.002 corresponds to cosine
+# ≈ 0.999 — i.e. the layer retains ≥99.8% of the signal energy. Without this,
+# a near-lossless quant (8-bit) still trips the relative-outlier voter: every MSE
+# is negligible but a couple are outliers *relative to the others*, so the tool
+# flags them and (wrongly) reads DEGRADED instead of PASS.
+MSE_HEALTHY_FLOOR = 0.002
+
 # Multi-prompt: a layer must be flagged in at least this fraction of prompts to
 # count as a real (not prompt-specific) culprit. 0.5 = majority.
 MIN_PROMPT_AGREEMENT = 0.5
@@ -131,12 +141,20 @@ def find_culprit_indices(cosines: list[float]) -> list[int]:
     return culprits
 
 
-def robust_high_outliers(values: list[float], z: float = OUTLIER_Z) -> list[int]:
+def robust_high_outliers(
+    values: list[float], z: float = OUTLIER_Z, healthy_floor: float = 0.0
+) -> list[int]:
     """Indices that are outliers on the HIGH side, via median + MAD.
 
     For error metrics where *bigger = worse* (e.g. normalized MSE). Mirror of the
     low-side logic in find_culprit_indices. Returns [] when the spread is
     degenerate (all values ~equal) so a uniform model flags nothing.
+
+    ``healthy_floor`` is an ABSOLUTE guard: a value at or below it is never an
+    outlier, however anomalous it looks relative to the distribution. This stops a
+    near-lossless model — where every error is negligible but a few are still
+    *relatively* larger — from flagging phantom culprits (the cosine ceiling's
+    magnitude-side twin). Default 0.0 keeps the pure-relative behaviour.
     """
     if not values:
         return []
@@ -150,7 +168,11 @@ def robust_high_outliers(values: list[float], z: float = OUTLIER_Z) -> list[int]
         scale = 1.4826 * (sum(devs) / len(devs))
         if scale < 1e-6:
             return []  # truly all identical
-    return [i for i, v in enumerate(values) if (v - med) / scale > z]
+    return [
+        i
+        for i, v in enumerate(values)
+        if v > healthy_floor and (v - med) / scale > z
+    ]
 
 
 def decide_verdict(min_cosine: float, output_kl: float | None, n_culprits: int = 0) -> Verdict:

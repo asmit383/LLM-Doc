@@ -90,6 +90,11 @@ def main() -> None:
                 "min_cosine": round(diag.min_cosine, 4),
                 "output_kl": round(diag.output_kl, 4) if diag.output_kl is not None else None,
                 "n_culprits": len(diag.culprit_indices),
+                # Per-layer arrays so threshold calibration (e.g. the MSE
+                # healthy-floor) is verifiable offline without a GPU re-run.
+                "per_layer_cosine": [round(lm.cosine, 5) for lm in diag.layers],
+                "per_layer_mse": [round(lm.mse, 6) for lm in diag.layers],
+                "culprit_indices": list(diag.culprit_indices),
             })
             print(f"          -> {diag.verdict.value} | mean cos {diag.mean_cosine:.4f} "
                   f"| KL {diag.output_kl} | {diag.failure_mode}")

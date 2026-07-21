@@ -10,7 +10,7 @@ fault injection** (real model, real quantization, real error propagation on GPU)
 expected labels. The test suite asserts the engine recovers each. Repeatable:
 
 ```bash
-pytest            # 38 passed
+pytest            # 40 passed
 ```
 
 | Case | Injected damage | Expected verdict | Expected mode | Result |
@@ -170,9 +170,17 @@ culprit count rises as bits drop — the tool tracks real degradation with no in
 faults. (Raw data: `docs/ladder-qwen2.5-32b.json`.)
 
 Two honest findings this surfaced:
-- **8-bit reads DEGRADED, not PASS** — the MSE voter is slightly too sensitive at the
-  near-lossless end (flags 2 layers despite cos 1.0). Fix: a healthy-floor on the MSE
-  voter, mirroring the cosine ceiling. (Calibration nit, not a correctness bug.)
+- **8-bit read DEGRADED, not PASS** — the MSE voter was slightly too sensitive at the
+  near-lossless end (flagged 2 layers despite cos 1.0). **Fixed:** an absolute
+  `MSE_HEALTHY_FLOOR` (0.002 ≈ cosine 0.999) now mirrors the cosine ceiling — a layer
+  retaining ≥99.8% of its energy can't be flagged as a magnitude outlier. Consequence
+  from the stored aggregates: HQQ-8bit (min cos 0.9999 → every layer below the floor)
+  now reads **PASS**; the mechanism is regression-tested (`tests/test_ensemble.py::
+  test_near_lossless_with_spread_passes`). Note bnb-8bit's worst layer (min cos 0.9929,
+  ≈0.014 normalized MSE) sits *above* the floor — that's genuine, mild int8 loss, so it
+  may legitimately stay DEGRADED rather than snap to PASS. The table above is the
+  pre-fix run; the harness now persists per-layer MSE (`per_layer_mse`) so the next run
+  refreshes these verdicts and is verifiable offline. (Calibration nit, not a correctness bug.)
 - **Even 2-bit stays "Signal Degradation," not "Computation Collapse"** — a 32B model
   with a good quantizer degrades *gracefully* rather than collapsing a layer. This
   matches the literature (larger models are more quantization-robust) and validates
@@ -185,7 +193,7 @@ Two honest findings this surfaced:
   monotonic. This is the keystone.
 - **Live degradation** — Qwen2.5-1.5B bnb4 → Signal Degradation (natural, mild).
 
-**Synthetic ground truth (`pytest`, 38 tests):** 6 controlled cases (healthy /
+**Synthetic ground truth (`pytest`, 40 tests):** 6 controlled cases (healthy /
 signal-degradation / computation-collapse / format-bug + 2 MoE), classifier recovers
 every expected verdict, failure mode, and culprit.
 
@@ -207,6 +215,9 @@ every expected verdict, failure mode, and culprit.
   ladder, and synthetic ground truth (where `synthetic.py` is both injector and oracle,
   which is somewhat circular). Cross-architecture / cross-quantizer transfer (Llama,
   Mistral, external AWQ/GPTQ checkpoints) is the least-tested axis and the top priority.
-- **Verdict discrimination** — near-lossless (8-bit) currently reads DEGRADED because the
-  MSE voter is over-sensitive at the healthy end; a healthy-floor fix is in progress so a
-  clean quant gets a trustworthy PASS.
+- **Verdict discrimination** — the near-lossless over-sensitivity (8-bit reading DEGRADED)
+  is **fixed**: an absolute `MSE_HEALTHY_FLOOR` mirrors the cosine ceiling so a truly clean
+  quant (HQQ-8bit) earns PASS, regression-tested in `tests/test_ensemble.py`. Remaining
+  nuance: bnb-8bit's worst layer is genuinely above the floor (real mild int8 loss), so a
+  full 32B re-run is what confirms the refreshed verdicts end-to-end (the harness now saves
+  per-layer MSE for exactly this).

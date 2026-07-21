@@ -12,6 +12,7 @@ from .classifier import classify
 from .diagnosis import (
     ABSOLUTE_FLOOR,
     MIN_PROMPT_AGREEMENT,
+    MSE_HEALTHY_FLOOR,
     Diagnosis,
     LayerMetrics,
     decide_verdict,
@@ -39,7 +40,11 @@ def diagnose_pair(ref: Dump, target: Dump) -> Diagnosis:
     #   MSE    (magnitude) — robust_high_outliers; catches cosine's blind spot
     #                        (a layer whose scale blows up but direction is intact)
     cos_flags = set(find_culprit_indices([lm.cosine for lm in layers]))
-    mse_flags = set(robust_high_outliers([lm.mse for lm in layers]))
+    mse_flags = set(
+        robust_high_outliers(
+            [lm.mse for lm in layers], healthy_floor=MSE_HEALTHY_FLOOR
+        )
+    )
 
     culprits: list[int] = []
     for lm in layers:
